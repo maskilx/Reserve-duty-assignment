@@ -447,4 +447,42 @@ router.get('/export/calendar', (req, res) => {
   }
 });
 
+// נתיב בסיסי - מידע כללי על הלוח העברי
+router.get('/', (req, res) => {
+  try {
+    const currentDate = moment();
+    const currentHebrewDate = getHebrewDate(currentDate);
+    
+    const response = {
+      success: true,
+      data: {
+        currentDate: {
+          gregorian: currentDate.format('YYYY-MM-DD'),
+          hebrew: currentHebrewDate,
+          dayOfWeek: currentDate.format('dddd')
+        },
+        holidays: {
+          total: hebrewHolidays2025.length,
+          upcoming: hebrewHolidays2025.filter(h => moment(h.date).isAfter(currentDate)).slice(0, 5)
+        },
+        availableEndpoints: [
+          '/api/hebrew-calendar/holidays',
+          '/api/hebrew-calendar/holidays/range',
+          '/api/hebrew-calendar/weekends/range',
+          '/api/hebrew-calendar/high-demand/range'
+        ]
+      },
+      message: 'לוח עברי זמין'
+    };
+    
+    res.json(response);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'שגיאה בקבלת מידע הלוח העברי',
+      message: error.message
+    });
+  }
+});
+
 module.exports = router; 

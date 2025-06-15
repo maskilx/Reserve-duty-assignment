@@ -137,6 +137,7 @@ function Scheduling() {
   });
 
   const [schedule, setSchedule] = useState(null);
+  const [showSchedule, setShowSchedule] = useState(false);
   const [loading, setLoading] = useState(false);
   const [soldiers, setSoldiers] = useState([]);
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -144,6 +145,7 @@ function Scheduling() {
   useEffect(() => {
     loadConfiguration();
     fetchSoldiers();
+    loadScheduleFromStorage();
   }, []);
 
   const fetchSoldiers = async () => {
@@ -196,7 +198,9 @@ function Scheduling() {
       const response = await axios.post('/api/scheduling/generate', configuration);
       if (response.data.success) {
         setSchedule(response.data.data);
+        setShowSchedule(false);
         toast.success('שיבוץ נוצר בהצלחה');
+        saveScheduleToStorage(response.data.data);
       }
     } catch (error) {
       console.error('שגיאה ביצירת שיבוץ:', error);
@@ -220,7 +224,9 @@ function Scheduling() {
       const response = await axios.delete('/api/scheduling/current');
       if (response.data.success) {
         setSchedule(null);
+        setShowSchedule(false);
         toast.success('השיבוץ נמחק בהצלחה');
+        clearScheduleFromStorage();
       }
     } catch (error) {
       console.error('שגיאה במחיקת שיבוץ:', error);
@@ -304,6 +310,38 @@ function Scheduling() {
     }
   };
 
+  const loadScheduleFromStorage = () => {
+    try {
+      const savedSchedule = localStorage.getItem('militarySchedule');
+      if (savedSchedule) {
+        const parsedSchedule = JSON.parse(savedSchedule);
+        setSchedule(parsedSchedule);
+        setShowSchedule(false); // לא מציגים את השיבוץ אוטומטית
+        console.log('Schedule loaded from localStorage');
+      }
+    } catch (error) {
+      console.error('Error loading schedule from localStorage:', error);
+    }
+  };
+
+  const saveScheduleToStorage = (scheduleData) => {
+    try {
+      localStorage.setItem('militarySchedule', JSON.stringify(scheduleData));
+      console.log('Schedule saved to localStorage');
+    } catch (error) {
+      console.error('Error saving schedule to localStorage:', error);
+    }
+  };
+
+  const clearScheduleFromStorage = () => {
+    try {
+      localStorage.removeItem('militarySchedule');
+      console.log('Schedule cleared from localStorage');
+    } catch (error) {
+      console.error('Error clearing schedule from localStorage:', error);
+    }
+  };
+
   return (
     <Container>
       <Title>הגדרת שיבוץ</Title>
@@ -371,7 +409,17 @@ function Scheduling() {
           <Button type="button" onClick={generateSchedule} disabled={loading}>
             יצירת שיבוץ
           </Button>
-          {schedule && (
+          {schedule && !showSchedule && (
+            <Button type="button" onClick={() => setShowSchedule(true)} disabled={loading}>
+              הצג שיבוץ
+            </Button>
+          )}
+          {schedule && showSchedule && (
+            <Button type="button" onClick={() => setShowSchedule(false)} disabled={loading}>
+              הסתר שיבוץ
+            </Button>
+          )}
+          {schedule && showSchedule && (
             <Button type="button" onClick={() => exportSchedule('excel')} disabled={loading}>
               ייצוא ל-Excel
             </Button>
@@ -411,7 +459,7 @@ function Scheduling() {
         </div>
       </Form>
 
-      {schedule && (
+      {schedule && showSchedule && (
         <ScheduleResult>
           <h3>תוצאות השיבוץ</h3>
           

@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1,
+    "name": "ישראל ישראלי",
+    "isCommander": true,
+    "lastDayInBase": null,
+    "daysInBase": 0,
+    "daysAtHome": 0,
+    "consecutiveDaysInBase": 0,
+    "consecutiveDaysAtHome": 0,
+    "maxConsecutiveDaysInOneTrip": 7,
+    "minTimeAtHome": 3,
+    "minTimeInBase": 11,
+    "timeSinceLastHome": 0,
+    "weekendsAtHome": 0,
+    "history": []
+  },
+  {
+    "id": 2,
+    "name": "משה כהן",
+    "isCommander": false,
+    "lastDayInBase": null,
+    "daysInBase": 0,
+    "daysAtHome": 0,
+    "consecutiveDaysInBase": 0,
+    "consecutiveDaysAtHome": 0,
+    "maxConsecutiveDaysInOneTrip": 7,
+    "minTimeAtHome": 3,
+    "minTimeInBase": 11,
+    "timeSinceLastHome": 0,
+    "weekendsAtHome": 0,
+    "history": []
+  },
+  {
+    "id": 3,
+    "name": "דוד לוי",
+    "isCommander": false,
+    "lastDayInBase": null,
+    "daysInBase": 0,
+    "daysAtHome": 0,
+    "consecutiveDaysInBase": 0,
+    "consecutiveDaysAtHome": 0,
+    "maxConsecutiveDaysInOneTrip": 7,
+    "minTimeAtHome": 3,
+    "minTimeInBase": 11,
+    "timeSinceLastHome": 0,
+    "weekendsAtHome": 0,
+    "history": []
+  }
+] 

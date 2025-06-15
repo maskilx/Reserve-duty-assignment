@@ -1,0 +1,7 @@
+{
+  "watch": ["."],
+  "ext": "js,json",
+  "ignore": ["data/schedule.json", "data/soldiers.json", "node_modules/"],
+  "delay": "2000",
+  "exec": "node index.js"
+} 

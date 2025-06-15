@@ -77,6 +77,27 @@ const Td = styled.td`
   text-align: right;
 `;
 
+const FileInput = styled.input`
+  display: none;
+`;
+
+const FileInputLabel = styled.label`
+  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  margin: 5px;
+
+  &:hover {
+    transform: translateY(-2px);
+  }
+`;
+
 const Button = styled.button`
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
@@ -146,6 +167,8 @@ function Admin() {
   const [soldiersOverview, setSoldiersOverview] = useState([]);
   const [conflicts, setConflicts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     loadDashboardData();
@@ -234,6 +257,44 @@ function Admin() {
     }
   };
 
+  const handleFileSelect = (event) => {
+    setSelectedFile(event.target.files[0]);
+  };
+
+  const handleFileUpload = async () => {
+    if (!selectedFile) {
+      toast.warn('יש לבחור קובץ תחילה');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    setUploading(true);
+
+    try {
+      const response = await axios.post('/api/admin/import/excel', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (response.data.success) {
+        toast.success('הקובץ יובא בהצלחה! היסטוריית החיילים עודכנה.');
+        // Refresh data after import
+        loadSoldiersOverview();
+        loadDashboardData();
+      } else {
+        toast.error(response.data.message || 'שגיאה בייבוא הקובץ');
+      }
+    } catch (error) {
+      toast.error('שגיאה חמורה בייבוא הקובץ');
+      console.error(error);
+    } finally {
+      setUploading(false);
+      setSelectedFile(null);
+    }
+  };
+
   if (loading) {
     return (
       <Container>
@@ -245,6 +306,27 @@ function Admin() {
   return (
     <Container>
       <Title>ממשק מנהל</Title>
+
+      <Section>
+        <SectionTitle>ייבוא וייצוא נתונים</SectionTitle>
+        <div>
+          <Button onClick={() => exportData('excel')}>ייצוא שיבוץ והיסטוריה (Excel)</Button>
+        </div>
+        <div style={{ marginTop: '20px' }}>
+            <FileInput
+                id="file-upload"
+                type="file"
+                accept=".xlsx, .xls"
+                onChange={handleFileSelect}
+            />
+            <FileInputLabel htmlFor="file-upload">
+                {selectedFile ? selectedFile.name : 'בחר קובץ היסטוריה'}
+            </FileInputLabel>
+            <Button onClick={handleFileUpload} disabled={!selectedFile || uploading}>
+                {uploading ? 'מעלה...' : 'ייבא היסטוריה מקובץ'}
+            </Button>
+        </div>
+      </Section>
 
       {dashboardData && (
         <StatsGrid>

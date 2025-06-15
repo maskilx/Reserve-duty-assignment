@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+
 class Configuration {
   constructor() {
     this.startDate = null;
@@ -8,6 +11,49 @@ class Configuration {
     this.minConsecutiveDays = 3; // מינימום 3 ימים רצופים
     this.holidays = []; // רשימת חגים
     this.emergencyReserveList = []; // רשימת חיילי תורניות חירום
+    
+    // טעינת קונפיגורציה מקובץ
+    this.loadFromFile();
+  }
+
+  loadFromFile() {
+    try {
+      const configPath = path.join(__dirname, '../data/configuration.json');
+      if (fs.existsSync(configPath)) {
+        const configData = fs.readFileSync(configPath, 'utf8');
+        const config = JSON.parse(configData);
+        
+        this.startDate = config.startDate;
+        this.endDate = config.endDate;
+        this.maxConsecutiveDaysInOneTrip = config.maxConsecutiveDaysInOneTrip || 7;
+        this.soldiersInBase = config.soldiersInBase || 2;
+        this.highDemandDays = config.highDemandDays || [];
+        this.minConsecutiveDays = config.minConsecutiveDays || 3;
+        this.holidays = config.holidays || [];
+        this.emergencyReserveList = config.emergencyReserveList || [];
+        
+        console.log('Configuration loaded from file:', this.toJSON());
+      }
+    } catch (error) {
+      console.error('Error loading configuration:', error);
+    }
+  }
+
+  saveToFile() {
+    try {
+      const configPath = path.join(__dirname, '../data/configuration.json');
+      const configDir = path.dirname(configPath);
+      
+      // יצירת תיקייה אם לא קיימת
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+      
+      fs.writeFileSync(configPath, JSON.stringify(this.toJSON(), null, 2));
+      console.log('Configuration saved to file');
+    } catch (error) {
+      console.error('Error saving configuration:', error);
+    }
   }
 
   setDateRange(startDate, endDate) {
@@ -97,4 +143,5 @@ class Configuration {
   }
 }
 
-module.exports = Configuration; 
+// ייצוא אובייקט יחיד (Singleton) במקום המחלקה
+module.exports = new Configuration(); 

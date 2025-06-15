@@ -1,0 +1,10 @@
+{
+  "startDate": "2025-06-15",
+  "endDate": "2025-07-01",
+  "maxConsecutiveDaysInOneTrip": 7,
+  "soldiersInBase": "16",
+  "highDemandDays": [],
+  "minConsecutiveDays": 3,
+  "holidays": [],
+  "emergencyReserveList": []
+}

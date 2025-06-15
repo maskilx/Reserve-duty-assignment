@@ -1,19 +1,14 @@
 {
-  "name": "military-leave-scheduler",
+  "name": "military-scheduler-root",
   "version": "1.0.0",
-  "description": "מערכת ניהול ושיבוץ ימי יציאה מהבסיס לחיילי מחלקה במילואים",
-  "main": "server/index.js",
+  "private": true,
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "server": "cd server && npm run dev",
-    "client": "cd client && npm start",
-    "build": "cd client && npm run build",
+    "start": "concurrently \"npm:start:server\" \"npm:start:client\"",
+    "start:server": "cd server && npm start",
+    "start:client": "cd client && npm start",
     "install-all": "npm install && cd server && npm install && cd ../client && npm install"
   },
-  "keywords": ["military", "scheduler", "leave", "hebrew"],
-  "author": "Military Scheduler Team",
-  "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2"
   }
-} 
+}

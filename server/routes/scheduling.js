@@ -7,13 +7,42 @@ const soldiers = require('../soldiersData');
 const upload = require('../middleware/upload');
 
 // נתונים זמניים
-let currentConfiguration = new Configuration();
+let currentConfiguration = Configuration;
 let currentSchedule = null;
 let currentSoldiers = soldiers;
 
-// הגדרת קונפיגורציה בסיסית
-currentConfiguration.setDateRange('2025-06-15', '2025-07-15');
-currentConfiguration.setBasicParameters(7, 2, 3); // מקסימום 7 ימי בית, מינימום 2 חיילים בבסיס, מינימום 3 ימים רצופים
+// הקונפיגורציה תיטען אוטומטית מהקובץ או תהיה ברירת מחדל
+
+// נתיב בסיסי - מידע כללי על השיבוץ
+router.get('/', (req, res) => {
+  try {
+    const hasCurrentSchedule = !!(currentSchedule || global.currentSchedule);
+    const scheduleToUse = currentSchedule || global.currentSchedule;
+    
+    const response = {
+      success: true,
+      data: {
+        hasSchedule: hasCurrentSchedule,
+        totalSoldiers: currentSoldiers.length,
+        configuration: currentConfiguration.toJSON(),
+        stats: hasCurrentSchedule ? {
+          totalDays: Object.keys(scheduleToUse.schedule).length,
+          totalHomeDays: Object.values(scheduleToUse.schedule).reduce((sum, day) => sum + day.home.length, 0),
+          conflicts: scheduleToUse.conflicts ? scheduleToUse.conflicts.length : 0
+        } : null
+      },
+      message: hasCurrentSchedule ? 'יש שיבוץ פעיל במערכת' : 'אין שיבוץ פעיל במערכת'
+    };
+    
+    res.json(response);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'שגיאה בקבלת מידע השיבוץ',
+      message: error.message
+    });
+  }
+});
 
 // קבלת הקונפיגורציה הנוכחית
 router.get('/configuration', (req, res) => {
@@ -75,6 +104,9 @@ router.put('/configuration', (req, res) => {
       });
     }
 
+    // שמירת הקונפיגורציה לקובץ
+    currentConfiguration.saveToFile();
+
     res.json({
       success: true,
       data: currentConfiguration.toJSON(),
@@ -111,7 +143,7 @@ router.post('/generate', (req, res) => {
     }
 
     // יצירת שיבוץ
-    const scheduler = new Scheduler(currentSoldiers, currentConfiguration);
+    const scheduler = new Scheduler(currentSoldiers, currentConfiguration.toJSON());
     const result = scheduler.generateSchedule();
     
     // בדיקה אם השיבוץ הצליח
@@ -119,7 +151,7 @@ router.post('/generate', (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'לא ניתן ליצור שיבוץ עם הפרמטרים הנוכחיים',
-        details: result.validationErrors
+        details: result.conflicts
       });
     }
     
@@ -150,11 +182,12 @@ router.post('/generate', (req, res) => {
         schedule: result.schedule,
         conflicts: result.conflicts,
         stats: result.stats,
-        soldierStats: scheduler.getSoldierStats()
+        soldierStats: scheduler.calculateSoldierStats()
       },
       message: 'שיבוץ נוצר בהצלחה'
     });
   } catch (error) {
+    console.error('Error in POST /api/scheduling/generate:', error);
     res.status(500).json({
       success: false,
       error: 'שגיאה ביצירת השיבוץ',
@@ -173,7 +206,7 @@ router.get('/current', (req, res) => {
       });
     }
 
-    const scheduler = new Scheduler(currentSoldiers, currentConfiguration);
+    const scheduler = new Scheduler(currentSoldiers, currentConfiguration.toJSON());
     
     res.json({
       success: true,
@@ -181,7 +214,7 @@ router.get('/current', (req, res) => {
         schedule: currentSchedule.schedule,
         conflicts: currentSchedule.conflicts,
         stats: currentSchedule.stats,
-        soldierStats: scheduler.getSoldierStats()
+        soldierStats: scheduler.calculateSoldierStats()
       }
     });
   } catch (error) {
@@ -293,7 +326,7 @@ router.get('/export/excel', (req, res) => {
       });
     }
 
-    const scheduler = new Scheduler(currentSoldiers, currentConfiguration);
+    const scheduler = new Scheduler(currentSoldiers, currentConfiguration.toJSON());
     scheduler.schedule = currentSchedule.schedule;
     scheduler.conflicts = currentSchedule.conflicts;
     scheduler.stats = currentSchedule.stats;
@@ -338,11 +371,11 @@ router.post('/import-excel', upload.single('file'), (req, res) => {
     const workbook = XLSX.readFile(req.file.path);
     
     // קריאת טבלת השיבוץ המדויק
-    const scheduleSheet = workbook.Sheets['שיבוץ מדויק'];
+    const scheduleSheet = workbook.Sheets['שיבוץ'];
     if (!scheduleSheet) {
       return res.status(400).json({
         success: false,
-        error: 'לא נמצאה טבלת "שיבוץ מדויק" בקובץ'
+        error: 'לא נמצאה טבלת "שיבוץ" בקובץ'
       });
     }
 
@@ -392,7 +425,7 @@ router.get('/export/txt', (req, res) => {
       });
     }
 
-    const scheduler = new Scheduler(currentSoldiers, currentConfiguration);
+    const scheduler = new Scheduler(currentSoldiers, currentConfiguration.toJSON());
     scheduler.schedule = currentSchedule.schedule;
     scheduler.conflicts = currentSchedule.conflicts;
     scheduler.stats = currentSchedule.stats;
@@ -422,14 +455,14 @@ router.get('/stats', (req, res) => {
       });
     }
 
-    const scheduler = new Scheduler(currentSoldiers, currentConfiguration);
+    const scheduler = new Scheduler(currentSoldiers, currentConfiguration.toJSON());
     scheduler.schedule = currentSchedule.schedule;
     scheduler.conflicts = currentSchedule.conflicts;
     scheduler.stats = currentSchedule.stats;
 
     const stats = {
       general: currentSchedule.stats,
-      soldiers: scheduler.getSoldierStats(),
+      soldiers: scheduler.calculateSoldierStats(),
       conflicts: currentSchedule.conflicts,
       highDemandDays: Object.keys(currentSchedule.schedule).filter(date => 
         currentConfiguration.isHighDemandDay(date)
@@ -437,7 +470,7 @@ router.get('/stats', (req, res) => {
       fairness: {
         score: currentSchedule.stats.fairnessScore,
         averageHomeDays: currentSchedule.stats.averageHomeDays,
-        variance: scheduler.calculateVariance(scheduler.getSoldierStats().map(s => s.homeDays))
+        variance: scheduler.calculateVariance(scheduler.calculateSoldierStats().map(s => s.homeDays))
       }
     };
 
@@ -464,7 +497,7 @@ router.post('/optimize', (req, res) => {
       });
     }
 
-    const scheduler = new Scheduler(currentSoldiers, currentConfiguration);
+    const scheduler = new Scheduler(currentSoldiers, currentConfiguration.toJSON());
     scheduler.schedule = currentSchedule.schedule;
     scheduler.conflicts = currentSchedule.conflicts;
     scheduler.stats = currentSchedule.stats;
@@ -486,7 +519,7 @@ router.post('/optimize', (req, res) => {
         schedule: currentSchedule.schedule,
         conflicts: currentSchedule.conflicts,
         stats: currentSchedule.stats,
-        soldierStats: scheduler.getSoldierStats()
+        soldierStats: scheduler.calculateSoldierStats()
       },
       message: 'שיבוץ אופטימז בהצלחה'
     });
@@ -519,6 +552,69 @@ router.delete('/current', (req, res) => {
     res.status(500).json({
       success: false,
       error: 'שגיאה במחיקת השיבוץ',
+      message: error.message
+    });
+  }
+});
+
+// ניתוח הוגנות מפורט
+router.get('/fairness-analysis', (req, res) => {
+  try {
+    if (!currentSchedule) {
+      return res.status(404).json({
+        success: false,
+        error: 'אין שיבוץ נוכחי לניתוח'
+      });
+    }
+
+    const scheduler = new Scheduler(currentSoldiers, currentConfiguration.toJSON());
+    scheduler.schedule = currentSchedule.schedule;
+    scheduler.stats = currentSchedule.stats;
+    
+    const fairnessAnalysis = scheduler.analyzeFairness();
+    
+    res.json({
+      success: true,
+      data: fairnessAnalysis,
+      message: 'ניתוח הוגנות הושלם'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'שגיאה בניתוח ההוגנות',
+      message: error.message
+    });
+  }
+});
+
+// בדיקת הרבה מקרים שונים
+router.get('/test-scenarios', (req, res) => {
+  try {
+    // טעינת קונפיגורציה עדכנית
+    const config = currentConfiguration ? currentConfiguration.toJSON() : {
+      startDate: '2025-06-15',
+      endDate: '2025-07-15',
+      maxConsecutiveDaysInOneTrip: 7,
+      soldiersInBase: 6,
+      minConsecutiveDays: 3,
+      highDemandDays: [],
+      holidays: [],
+      emergencyReserveList: []
+    };
+    
+    const scheduler = new Scheduler(currentSoldiers, config);
+    const scenarioResults = scheduler.testMultipleScenarios();
+    
+    res.json({
+      success: true,
+      data: scenarioResults,
+      message: 'בדיקת המקרים הושלמה'
+    });
+  } catch (error) {
+    console.error('Error in test-scenarios:', error);
+    res.status(500).json({
+      success: false,
+      error: 'שגיאה בבדיקת המקרים',
       message: error.message
     });
   }

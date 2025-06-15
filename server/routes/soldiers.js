@@ -1,7 +1,16 @@
 const express = require('express');
 const router = express.Router();
+const fs = require('fs');
+const path = require('path');
 const Soldier = require('../models/Soldier');
 const soldiers = require('../soldiersData');
+
+const soldiersDataPath = path.join(__dirname, '../soldiersData.js');
+
+function saveSoldiers() {
+  const data = `module.exports = ${JSON.stringify(soldiers.map(s => s.toJSON()), null, 2)};`;
+  fs.writeFileSync(soldiersDataPath, data, 'utf8');
+}
 
 // קבלת כל החיילים
 router.get('/', (req, res) => {
@@ -70,6 +79,7 @@ router.post('/', (req, res) => {
     );
     
     soldiers.push(newSoldier);
+    saveSoldiers();
     
     res.status(201).json({
       success: true,
@@ -108,6 +118,7 @@ router.put('/:id', (req, res) => {
     if (isEmergencyReserve !== undefined) soldiers[soldierIndex].isEmergencyReserve = isEmergencyReserve;
     
     soldiers[soldierIndex].lastUpdate = new Date();
+    saveSoldiers();
     
     res.json({
       success: true,
@@ -137,6 +148,7 @@ router.delete('/:id', (req, res) => {
     }
     
     const deletedSoldier = soldiers.splice(soldierIndex, 1)[0];
+    saveSoldiers();
     
     res.json({
       success: true,
@@ -182,6 +194,7 @@ router.post('/:id/requests', (req, res) => {
     }
     
     const request = soldier.addRequest(date, priority, reason || '');
+    saveSoldiers();
     
     res.status(201).json({
       success: true,
@@ -248,6 +261,7 @@ router.delete('/:id/requests/:requestId', (req, res) => {
     }
     
     const deletedRequest = soldier.requests.splice(requestIndex, 1)[0];
+    saveSoldiers();
     
     res.json({
       success: true,

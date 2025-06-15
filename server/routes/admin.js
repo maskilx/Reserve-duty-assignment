@@ -4,15 +4,60 @@ const Soldier = require('../models/Soldier');
 const Configuration = require('../models/Configuration');
 const Scheduler = require('../services/Scheduler');
 const soldiers = require('../soldiersData');
+const fs = require('fs');
+const path = require('path');
+const ExcelJS = require('exceljs');
+const multer = require('multer');
+
+// Multer setup for file upload
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
 // נתונים זמניים
-let currentConfiguration = new Configuration();
+let currentConfiguration = Configuration;
 let currentSchedule = null;
 
 // פונקציה לעדכון השיבוץ הנוכחי
 function updateCurrentSchedule(schedule) {
   currentSchedule = schedule;
 }
+
+// נתיב בסיסי - מידע כללי על המערכת
+router.get('/', (req, res) => {
+  try {
+    const commandersCount = soldiers.filter(s => s.rank === 'מפקד').length;
+    const regularSoldiersCount = soldiers.filter(s => s.rank === 'לא מפקד').length;
+    const hasCurrentSchedule = !!(currentSchedule || global.currentSchedule);
+    
+    const response = {
+      success: true,
+      data: {
+        systemInfo: {
+          totalSoldiers: soldiers.length,
+          commandersCount: commandersCount,
+          regularSoldiersCount: regularSoldiersCount,
+          hasActiveSchedule: hasCurrentSchedule,
+          lastUpdate: new Date().toISOString()
+        },
+        availableEndpoints: [
+          '/api/admin/dashboard',
+          '/api/admin/soldiers-overview', 
+          '/api/admin/emergency-reserve',
+          '/api/admin/current-schedule'
+        ]
+      },
+      message: 'מערכת ניהול פעילה'
+    };
+    
+    res.json(response);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'שגיאה בקבלת מידע המערכת',
+      message: error.message
+    });
+  }
+});
 
 // דשבורד מנהל - סקירה כללית
 router.get('/dashboard', (req, res) => {
@@ -525,7 +570,7 @@ router.get('/advanced-stats', (req, res) => {
     scheduler.conflicts = currentSchedule.conflicts;
     scheduler.stats = currentSchedule.stats;
 
-    const soldierStats = scheduler.getSoldierStats();
+    const soldierStats = scheduler.calculateSoldierStats();
     
     // ניתוח הוגנות
     const homeDaysArray = soldierStats.map(s => s.homeDays);
@@ -688,4 +733,252 @@ router.get('/export/admin-report', (req, res) => {
   }
 });
 
-module.exports = router; 
+const readData = (fileName) => {
+    const filePath = path.join(__dirname, '..', 'data', fileName);
+    if (fs.existsSync(filePath)) {
+        const fileContent = fs.readFileSync(filePath, 'utf8');
+        try {
+            return JSON.parse(fileContent);
+        } catch (e) {
+            console.error(`Error parsing JSON from ${fileName}:`, e);
+            return null;
+        }
+    }
+    return null;
+};
+
+router.get('/export/excel', async (req, res) => {
+  try {
+    const scheduleData = readData('schedule.json');
+    if (!scheduleData || !scheduleData.schedule) {
+      return res.status(404).send('Schedule data not found or is empty.');
+    }
+
+    const soldiersData = readData('soldiers.json');
+    if (!soldiersData) {
+      return res.status(404).send('Soldiers data not found.');
+    }
+
+    const config = Configuration.get();
+    const startDate = new Date(config.startDate);
+    const endDate = new Date(config.endDate);
+
+    // 1. Sort soldiers: commanders first, then by name
+    const sortedSoldiers = [...soldiersData].sort((a, b) => {
+      if (a.rank === 'מפקד' && b.rank !== 'מפקד') return -1;
+      if (a.rank !== 'מפקד' && b.rank === 'מפקד') return 1;
+      return a.name.localeCompare(b.name, 'he');
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('שיבוץ');
+    
+    // Set worksheet to right-to-left
+    worksheet.views = [
+      { rightToLeft: true }
+    ];
+
+    // 2. Create header row
+    const header = ['שם החייל', 'דרגה'];
+    const dates = [];
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      const dateString = d.toISOString().split('T')[0];
+      dates.push(dateString);
+      header.push(dateString);
+    }
+    header.push('סה"כ ימי בית');
+    header.push('סה"כ ימי בסיס');
+    worksheet.addRow(header);
+
+    // Style header
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).alignment = { horizontal: 'center' };
+    worksheet.getRow(1).eachCell(cell => {
+        cell.fill = {
+            type: 'pattern',
+            pattern:'solid',
+            fgColor:{argb:'FFD3D3D3'}
+        };
+        cell.border = {
+            top: {style:'thin'},
+            left: {style:'thin'},
+            bottom: {style:'thin'},
+            right: {style:'thin'}
+        };
+    });
+
+
+    // 3. Populate data for each soldier
+    sortedSoldiers.forEach(soldier => {
+      const row = [soldier.name, soldier.rank];
+      let homeDays = 0;
+      let baseDays = 0;
+
+      dates.forEach(date => {
+        const daySchedule = scheduleData.schedule[date];
+        if (daySchedule) {
+          if (daySchedule.base.includes(soldier.id)) {
+            row.push(1);
+            baseDays++;
+          } else if (daySchedule.home.includes(soldier.id)) {
+            row.push(0);
+            homeDays++;
+          } else {
+            row.push(''); // Soldier not scheduled for this day
+          }
+        } else {
+          row.push(''); // Date not in schedule
+        }
+      });
+
+      row.push(homeDays);
+      row.push(baseDays);
+      const addedRow = worksheet.addRow(row);
+      
+      // Style data rows
+      addedRow.eachCell(cell => {
+        cell.alignment = { horizontal: 'center' };
+        cell.border = {
+            top: {style:'thin'},
+            left: {style:'thin'},
+            bottom: {style:'thin'},
+            right: {style:'thin'}
+        };
+      });
+    });
+
+    // Auto-fit columns
+    worksheet.columns.forEach(column => {
+        let maxLength = 0;
+        column.eachCell({ includeEmpty: true }, cell => {
+            let columnLength = cell.value ? cell.value.toString().length : 10;
+            if (columnLength > maxLength) {
+                maxLength = columnLength;
+            }
+        });
+        column.width = maxLength < 12 ? 12 : maxLength;
+    });
+    
+    worksheet.getColumn(1).width = 20; // Soldier name
+    worksheet.getColumn(2).width = 15; // Rank
+
+
+    // Prepare response
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="schedule_export.xlsx"');
+
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (error) {
+    console.error('Failed to export schedule to Excel:', error);
+    res.status(500).send('Error exporting to Excel');
+  }
+});
+
+router.get('/export/text', async (req, res) => {
+  try {
+    const schedule = readData('schedule.json');
+    const soldiersData = readData('soldiers.json');
+
+    if (!schedule || !soldiersData) {
+      return res.status(404).send('Schedule or soldiers data not found.');
+    }
+
+    const dates = Object.keys(schedule).sort();
+    let textOutput = 'שיבוץ יציאות:\n\n';
+    
+    soldiersData.forEach(soldier => {
+      textOutput += `==== ${soldier.name} ====\n`;
+      let homeDaysCount = 0;
+      dates.forEach(date => {
+        const day = schedule[date];
+         if (day && day.soldiersAtHome && day.soldiersAtHome.some(s => s.id === soldier.id)) {
+          textOutput += `  ${date}: בית\n`;
+          homeDaysCount++;
+        }
+      });
+      textOutput += `\nסך הכל ימי בית בתקופה: ${homeDaysCount}\n\n`;
+    });
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=' + `schedule-${new Date().toISOString().split('T')[0]}.txt`
+    );
+    res.send(textOutput);
+
+  } catch (error) {
+    console.error('Error exporting to Text:', error);
+    res.status(500).send('Error exporting to Text');
+  }
+});
+
+router.post('/import/excel', upload.single('scheduleFile'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).send('No file uploaded.');
+    }
+
+    const soldiersFilePath = path.join(__dirname, '..', 'data', 'soldiers.json');
+    const soldiers = readData('soldiers.json');
+    if (!soldiers) {
+      return res.status(500).send('Could not read soldiers data.');
+    }
+    
+    const soldierMap = soldiers.reduce((map, s) => {
+      map[s.name] = s;
+      return map;
+    }, {});
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(req.file.buffer);
+    const worksheet = workbook.worksheets[0];
+
+    if (!worksheet) {
+      return res.status(400).send('No worksheet found in the Excel file.');
+    }
+
+    const headerRow = worksheet.getRow(1).values;
+    const dates = Array.isArray(headerRow) ? headerRow.slice(1) : [];
+
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+
+      const rowValues = row.values;
+      const soldierName = Array.isArray(rowValues) && rowValues.length > 1 ? rowValues[1] : null;
+      const soldier = soldierName ? soldierMap[soldierName] : null;
+
+      if (soldier) {
+        if (!soldier.history) {
+          soldier.history = [];
+        }
+
+        dates.forEach((date, index) => {
+          if (date) {
+            const status = Array.isArray(rowValues) && rowValues.length > index + 1 ? rowValues[index + 2] : null;
+            if (status === 'בית') {
+              const isoDate = new Date(date).toISOString().split('T')[0];
+              if (!soldier.history.some(h => h.date === isoDate)) {
+                soldier.history.push({
+                  date: isoDate,
+                  type: 'home'
+                });
+              }
+            } 
+          }
+        });
+      }
+    });
+    
+    fs.writeFileSync(soldiersFilePath, JSON.stringify(soldiers, null, 2), 'utf8');
+
+    res.status(200).json({ success: true, message: 'Schedule imported and soldier history updated successfully.' });
+
+  } catch (error) {
+    console.error('Error importing from Excel:', error);
+    res.status(500).json({ success: false, message: 'Error importing from Excel: ' + error.message });
+  }
+});
+
+module.exports = router;
