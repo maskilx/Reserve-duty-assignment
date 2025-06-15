@@ -4,6 +4,7 @@ const Scheduler = require('../services/Scheduler');
 const Configuration = require('../models/Configuration');
 const Soldier = require('../models/Soldier');
 const soldiers = require('../soldiersData');
+const upload = require('../middleware/upload');
 
 // נתונים זמניים
 let currentConfiguration = new Configuration();
@@ -318,6 +319,64 @@ router.get('/export/excel', (req, res) => {
     res.status(500).json({
       success: false,
       error: 'שגיאה בייצוא ל-Excel',
+      message: error.message
+    });
+  }
+});
+
+// קריאת קובץ Excel קיים ושילוב עם שיבוץ חדש
+router.post('/import-excel', upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'לא נשלח קובץ'
+      });
+    }
+
+    const XLSX = require('xlsx');
+    const workbook = XLSX.readFile(req.file.path);
+    
+    // קריאת טבלת השיבוץ המדויק
+    const scheduleSheet = workbook.Sheets['שיבוץ מדויק'];
+    if (!scheduleSheet) {
+      return res.status(400).json({
+        success: false,
+        error: 'לא נמצאה טבלת "שיבוץ מדויק" בקובץ'
+      });
+    }
+
+    const scheduleData = XLSX.utils.sheet_to_json(scheduleSheet);
+    
+    // עדכון היסטוריית ימי בית לכל חייל
+    scheduleData.forEach(row => {
+      const soldier = currentSoldiers.find(s => s.id === parseInt(row['מזהה']));
+      if (soldier) {
+        // עדכון היסטוריית ימי בית
+        soldier.totalHomeDaysHistory = (soldier.totalHomeDaysHistory || 0) + (parseInt(row['סך ימי יציאה']) || 0);
+        
+        // עדכון היסטוריית ימי בבסיס
+        soldier.totalDaysInBaseHistory = (soldier.totalDaysInBaseHistory || 0) + (parseInt(row['סך ימים בבסיס']) || 0);
+      }
+    });
+
+    // מחיקת הקובץ הזמני
+    const fs = require('fs');
+    fs.unlinkSync(req.file.path);
+
+    res.json({
+      success: true,
+      message: 'קובץ Excel נקרא בהצלחה והיסטוריית החיילים עודכנה',
+      data: {
+        soldiersUpdated: scheduleData.length,
+        totalHomeDaysHistory: currentSoldiers.reduce((sum, s) => sum + (s.totalHomeDaysHistory || 0), 0),
+        totalDaysInBaseHistory: currentSoldiers.reduce((sum, s) => sum + (s.totalDaysInBaseHistory || 0), 0)
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'שגיאה בקריאת קובץ Excel',
       message: error.message
     });
   }

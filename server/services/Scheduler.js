@@ -152,7 +152,11 @@ class Scheduler {
       let homeCandidates = this.soldiers.filter(s => !unavailableForHomeIds.has(s.id));
 
       // Sort candidates by fairness (least total home days)
-      homeCandidates.sort((a, b) => (a.totalHomeDays + (a.totalHomeDaysHistory || 0)) - (b.totalHomeDays + (b.totalHomeDaysHistory || 0)));
+      homeCandidates.sort((a, b) => {
+        const aTotalHomeDays = (a.totalHomeDays + (a.totalHomeDaysHistory || 0));
+        const bTotalHomeDays = (b.totalHomeDays + (b.totalHomeDaysHistory || 0));
+        return aTotalHomeDays - bTotalHomeDays;
+      });
 
       // Ensure we have enough candidates to fill home slots
       if (homeCandidates.length < maxHomePerDay) {
@@ -284,6 +288,8 @@ class Scheduler {
       soldierId: soldier.id,
       name: soldier.name,
       homeDays: soldier.totalHomeDays,
+      totalHomeDaysHistory: soldier.totalHomeDaysHistory || 0,
+      totalHomeDaysCombined: soldier.totalHomeDays + (soldier.totalHomeDaysHistory || 0),
       requestedDays: soldier.getTotalRequestedDays(),
       highPriorityRequests: soldier.getHighPriorityRequests().length,
       isEmergencyReserve: soldier.isEmergencyReserve
@@ -296,10 +302,12 @@ class Scheduler {
     this.stats.totalDays = Object.keys(this.schedule).length;
     this.stats.averageHomeDays = soldierStats.reduce((sum, stat) => sum + stat.homeDays, 0) / soldierStats.length;
     
-    // חישוב ציון הוגנות (כמה אחידים ימי הבית)
-    const homeDaysArray = soldierStats.map(stat => stat.homeDays);
-    const variance = this.calculateVariance(homeDaysArray);
-    this.stats.fairnessScore = Math.max(0, 100 - variance * 10); // ציון 0-100
+    // חישוב ציון הוגנות משופר - כולל היסטוריה
+    const combinedHomeDaysArray = soldierStats.map(stat => stat.totalHomeDaysCombined);
+    const variance = this.calculateVariance(combinedHomeDaysArray);
+    const maxPossibleVariance = Math.pow(this.stats.totalDays, 2) / 4; // המקסימום האפשרי
+    const normalizedVariance = variance / maxPossibleVariance;
+    this.stats.fairnessScore = Math.max(0, Math.round(100 - (normalizedVariance * 100))); // ציון 0-100
     
     this.stats.conflictsResolved = this.conflicts.length;
 
@@ -318,24 +326,90 @@ class Scheduler {
     
     const workbook = XLSX.utils.book_new();
     
-    // Input sheet - נתוני הקלט
-    const inputData = this.soldiers.map(soldier => ({
-      'מזהה': soldier.id,
-      'שם': soldier.name,
-      'דרגה': soldier.rank,
-      'טלפון': soldier.phone,
-      'אימייל': soldier.email,
-      'מרחק מהבסיס': soldier.distanceFromBase,
-      'תורניות חירום': soldier.isEmergencyReserve ? 'כן' : 'לא',
-      'בקשות יציאה': soldier.requests.length,
-      'ימים משובצים': soldier.totalHomeDays
-    }));
+    // 1. טבלת שיבוץ מדויקת - תאריכים למעלה, חיילים בצד שמאל
+    const dates = Object.keys(this.schedule).sort();
+    const soldiersData = this.soldiers.map(soldier => {
+      const row = {
+        'מזהה': soldier.id,
+        'שם': soldier.name,
+        'דרגה': soldier.rank
+      };
+      
+      // הוספת עמודה לכל תאריך
+      dates.forEach(date => {
+        const isInBase = this.schedule[date].base.includes(soldier.id);
+        row[date] = isInBase ? 1 : 0;
+      });
+      
+      // חישוב סך ימים בבסיס
+      const totalDaysInBase = dates.reduce((sum, date) => {
+        return sum + (this.schedule[date].base.includes(soldier.id) ? 1 : 0);
+      }, 0);
+      
+      row['סך ימים בבסיס'] = totalDaysInBase;
+      row['סך ימי יציאה'] = soldier.totalHomeDays;
+      row['היסטוריית ימי יציאה'] = soldier.totalHomeDaysHistory || 0;
+      row['סך כולל ימי יציאה'] = soldier.totalHomeDays + (soldier.totalHomeDaysHistory || 0);
+      
+      return row;
+    });
     
-    const inputSheet = XLSX.utils.json_to_sheet(inputData);
-    XLSX.utils.book_append_sheet(workbook, inputSheet, 'Input');
+    const scheduleSheet = XLSX.utils.json_to_sheet(soldiersData);
     
-    // Schedule sheet - לוח השיבוץ
-    const scheduleData = Object.keys(this.schedule).map(date => {
+    // הגדרת רוחב עמודות
+    const columnWidths = [
+      { wch: 8 },  // מזהה
+      { wch: 15 }, // שם
+      { wch: 10 }, // דרגה
+    ];
+    
+    // הוספת רוחב לעמודות התאריכים
+    dates.forEach(() => {
+      columnWidths.push({ wch: 6 });
+    });
+    
+    // רוחב לעמודות הסכומים
+    columnWidths.push({ wch: 15 }); // סך ימים בבסיס
+    columnWidths.push({ wch: 15 }); // סך ימי יציאה
+    columnWidths.push({ wch: 20 }); // היסטוריית ימי יציאה
+    columnWidths.push({ wch: 20 }); // סך כולל ימי יציאה
+    
+    scheduleSheet['!cols'] = columnWidths;
+    
+    XLSX.utils.book_append_sheet(workbook, scheduleSheet, 'שיבוץ מדויק');
+    
+    // 2. טבלת בקשות יציאה
+    const requestsData = [];
+    this.soldiers.forEach(soldier => {
+      if (soldier.requests && soldier.requests.length > 0) {
+        soldier.requests.forEach(request => {
+          requestsData.push({
+            'מזהה חייל': soldier.id,
+            'שם חייל': soldier.name,
+            'תאריך בקשה': request.date,
+            'עדיפות': request.priority,
+            'סיבה': request.reason,
+            'סטטוס': request.status
+          });
+        });
+      } else {
+        // חייל ללא בקשות
+        requestsData.push({
+          'מזהה חייל': soldier.id,
+          'שם חייל': soldier.name,
+          'תאריך בקשה': '',
+          'עדיפות': '',
+          'סיבה': 'אין בקשות',
+          'סטטוס': ''
+        });
+      }
+    });
+    
+    const requestsSheet = XLSX.utils.json_to_sheet(requestsData);
+    XLSX.utils.book_append_sheet(workbook, requestsSheet, 'בקשות יציאה');
+    
+    // 3. סיכום יומי
+    const dailySummary = dates.map(date => {
       const dateSchedule = this.schedule[date];
       const homeSoldiers = dateSchedule.home.map(id => {
         const soldier = this.soldiers.find(s => s.id === id);
@@ -349,27 +423,43 @@ class Scheduler {
       
       return {
         'תאריך': date,
-        'יוצאים הביתה': homeSoldiers,
-        'נשארים בבסיס': baseSoldiers,
+        'יוצאים הביתה': homeSoldiers || 'אין',
+        'נשארים בבסיס': baseSoldiers || 'אין',
         'מספר בבסיס': dateSchedule.base.length,
+        'מספר בבית': dateSchedule.home.length,
         'קונפליקטים': dateSchedule.conflicts.length > 0 ? 'כן' : 'לא'
       };
     });
     
-    const scheduleSheet = XLSX.utils.json_to_sheet(scheduleData);
-    XLSX.utils.book_append_sheet(workbook, scheduleSheet, 'Schedule');
+    const summarySheet = XLSX.utils.json_to_sheet(dailySummary);
+    XLSX.utils.book_append_sheet(workbook, summarySheet, 'סיכום יומי');
     
-    // Stats sheet - סטטיסטיקות
-    const statsData = this.getSoldierStats().map(stat => ({
-      'שם': stat.name,
-      'ימי בית': stat.homeDays,
-      'בקשות': stat.requestedDays,
-      'בקשות חובה': stat.highPriorityRequests,
-      'תורניות חירום': stat.isEmergencyReserve ? 'כן' : 'לא'
-    }));
+    // 4. סטטיסטיקות חיילים
+    const statsData = this.soldiers.map(soldier => {
+      const totalDaysInBase = dates.reduce((sum, date) => {
+        return sum + (this.schedule[date].base.includes(soldier.id) ? 1 : 0);
+      }, 0);
+      
+      return {
+        'מזהה': soldier.id,
+        'שם': soldier.name,
+        'דרגה': soldier.rank,
+        'טלפון': soldier.phone,
+        'אימייל': soldier.email,
+        'מרחק מהבסיס': soldier.distanceFromBase,
+        'תורניות חירום': soldier.isEmergencyReserve ? 'כן' : 'לא',
+        'בקשות יציאה': soldier.requests ? soldier.requests.length : 0,
+        'ימי יציאה (נוכחי)': soldier.totalHomeDays,
+        'ימי יציאה (היסטוריה)': soldier.totalHomeDaysHistory || 0,
+        'ימי יציאה (כולל)': soldier.totalHomeDays + (soldier.totalHomeDaysHistory || 0),
+        'ימי בבסיס': totalDaysInBase,
+        'אחוז יציאה': soldier.totalHomeDays > 0 ? 
+          Math.round((soldier.totalHomeDays / dates.length) * 100) + '%' : '0%'
+      };
+    });
     
     const statsSheet = XLSX.utils.json_to_sheet(statsData);
-    XLSX.utils.book_append_sheet(workbook, statsSheet, 'Stats');
+    XLSX.utils.book_append_sheet(workbook, statsSheet, 'סטטיסטיקות חיילים');
     
     return workbook;
   }

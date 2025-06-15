@@ -139,6 +139,7 @@ function Scheduling() {
   const [schedule, setSchedule] = useState(null);
   const [loading, setLoading] = useState(false);
   const [soldiers, setSoldiers] = useState([]);
+  const [uploadedFile, setUploadedFile] = useState(null);
 
   useEffect(() => {
     loadConfiguration();
@@ -255,6 +256,54 @@ function Scheduling() {
     return soldier ? soldier.name : id;
   };
 
+  const importExcel = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+      toast.error('אנא העלה קובץ Excel בלבד');
+      return;
+    }
+
+    setUploadedFile(file);
+    toast.success('קובץ Excel נבחר בהצלחה');
+  };
+
+  const uploadExcel = async () => {
+    if (!uploadedFile) {
+      toast.error('אנא בחר קובץ Excel תחילה');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const formData = new FormData();
+      formData.append('file', uploadedFile);
+
+      const response = await axios.post('/api/scheduling/import-excel', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      if (response.data.success) {
+        toast.success(response.data.message);
+        setUploadedFile(null);
+        // רענון רשימת החיילים
+        fetchSoldiers();
+      }
+    } catch (error) {
+      console.error('שגיאה בהעלאת קובץ Excel:', error);
+      if (error.response && error.response.data && error.response.data.error) {
+        toast.error(error.response.data.error);
+      } else {
+        toast.error('שגיאה בהעלאת קובץ Excel');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Container>
       <Title>הגדרת שיבוץ</Title>
@@ -330,6 +379,35 @@ function Scheduling() {
           <Button type="button" onClick={deleteSchedule} disabled={loading}>
             מחיקת שיבוץ
           </Button>
+        </div>
+
+        {/* העלאת Excel קיים */}
+        <div style={{ marginTop: '20px', padding: '20px', border: '2px dashed #ccc', borderRadius: '8px' }}>
+          <h4 style={{ marginBottom: '15px', textAlign: 'center' }}>העלאת שיבוץ קיים מ-Excel</h4>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'center' }}>
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={importExcel}
+              style={{ border: '1px solid #ccc', padding: '5px', borderRadius: '4px' }}
+            />
+            <Button 
+              type="button" 
+              onClick={uploadExcel} 
+              disabled={loading || !uploadedFile}
+              style={{ backgroundColor: '#17a2b8' }}
+            >
+              העלה Excel
+            </Button>
+          </div>
+          {uploadedFile && (
+            <p style={{ textAlign: 'center', marginTop: '10px', color: '#28a745' }}>
+              קובץ נבחר: {uploadedFile.name}
+            </p>
+          )}
+          <p style={{ fontSize: '0.9em', textAlign: 'center', marginTop: '10px', color: '#666' }}>
+            העלה קובץ Excel קיים כדי לשלב את ההיסטוריה עם שיבוץ חדש
+          </p>
         </div>
       </Form>
 
